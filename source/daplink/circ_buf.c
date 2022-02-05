@@ -107,6 +107,77 @@ uint32_t circ_buf_count_free(circ_buf_t *circ_buf)
     return cnt;
 }
 
+// size-1 contiguous free
+// r
+// w.........
+// 0123456789
+
+// size-2 contiguous free
+//  r
+// .w........
+// 0123456789
+
+// size-2 contiguous free
+// rw........
+// 0123456789
+
+// full
+// wr........
+// 0123456789
+
+// full
+// .wr.......
+// 0123456789
+
+// 1 free
+// w.r.......
+// 0123456789
+
+// uint32_t circ_buf_count_contiguous_free(circ_buf_t *circ_buf)
+// {
+//     uint32_t cnt;
+//     cortex_int_state_t state;
+
+//     state = cortex_int_get_and_disable();
+
+//     if (circ_buf->tail < circ_buf->head) {
+//         cnt = circ_buf->head - circ_buf->tail - 1;
+//     } else {
+//         cnt = circ_buf->size - circ_buf->tail - 1;
+//     }
+//     cortex_int_restore(state);
+//     return cnt;
+// }
+
+uint8_t* circ_buf_write_peek(circ_buf_t *circ_buf, uint32_t* size)
+{
+    uint32_t cnt;
+    cortex_int_state_t state;
+    uint8_t* buf;
+
+    state = cortex_int_get_and_disable();
+    if (circ_buf->tail < circ_buf->head) {
+        *size = circ_buf->head - circ_buf->tail - 1;
+    } else {
+        *size = circ_buf->size - circ_buf->tail - 1;
+    }
+    buf = &circ_buf->buf[circ_buf->tail];
+    cortex_int_restore(state);
+    return buf;
+}
+
+void circ_buf_push_n(circ_buf_t *circ_buf, uint32_t size)
+{
+    cortex_int_state_t state;
+
+    state = cortex_int_get_and_disable();
+    circ_buf->tail += size;
+    if (circ_buf->tail == circ_buf->size) {
+        circ_buf->tail = 0;
+    }
+    cortex_int_restore(state);
+}
+
 uint32_t circ_buf_read(circ_buf_t *circ_buf, uint8_t *data, uint32_t size)
 {
     uint32_t cnt;

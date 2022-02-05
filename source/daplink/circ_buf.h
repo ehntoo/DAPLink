@@ -51,11 +51,21 @@ uint32_t circ_buf_count_used(circ_buf_t *circ_buf);
 // Get the number of free spots left in the circular buffer
 uint32_t circ_buf_count_free(circ_buf_t *circ_buf);
 
+// Get the number of free spots that are contiguously writeable
+// uint32_t circ_buf_count_contiguous_free(circ_buf_t *circ_buf);
+
 // Attempt to read size bytes from the buffer. Return the number of bytes read
 uint32_t circ_buf_read(circ_buf_t *circ_buf, uint8_t *data, uint32_t size);
 
 // Attempt to write size bytes to the buffer. Return the number of bytes written
 uint32_t circ_buf_write(circ_buf_t *circ_buf, const uint8_t *data, uint32_t size);
+
+// Returns a pointer to the next writeable byte on the circular buffer and stores
+// in the value pointed by "size" the number of bytes available in that region,
+// which may be less than the total number of bytes in the circular buffer.
+uint8_t* circ_buf_write_peek(circ_buf_t *circ_buf, uint32_t* size);
+
+void circ_buf_push_n(circ_buf_t *circ_buf, uint32_t size);
 
 // Returns a pointer to the next byte on the circular buffer and stores in the
 // value pointed by "size" the number of bytes available in that region, which
