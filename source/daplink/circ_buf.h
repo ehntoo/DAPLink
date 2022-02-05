@@ -30,8 +30,8 @@ extern "C" {
 #endif
 
 typedef struct {
-    uint32_t head;
-    uint32_t tail;
+    uint32_t read;
+    uint32_t write;
     uint32_t size;
     uint8_t *buf;
 } circ_buf_t;
@@ -75,6 +75,10 @@ const uint8_t* circ_buf_peek(circ_buf_t *circ_buf, uint32_t* size);
 // Remove n bytes from the front of the circular buffer. The values are
 // discarded.
 void circ_buf_pop_n(circ_buf_t *circ_buf, uint32_t n);
+
+bool circ_buf_empty(circ_buf_t *circ_buf);
+
+bool circ_buf_full(circ_buf_t *circ_buf);
 
 #ifdef __cplusplus
 }

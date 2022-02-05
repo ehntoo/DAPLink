@@ -31,10 +31,25 @@ void circ_buf_init(circ_buf_t *circ_buf, uint8_t *buffer, uint32_t size)
 
     circ_buf->buf = buffer;
     circ_buf->size = size;
-    circ_buf->head = 0;
-    circ_buf->tail = 0;
+    circ_buf->read = 0;
+    circ_buf->write = 0;
 
     cortex_int_restore(state);
+}
+
+bool circ_buf_empty(circ_buf_t *circ_buf)
+{
+    return circ_buf->read == circ_buf->write;
+}
+
+bool circ_buf_full(circ_buf_t *circ_buf)
+{
+    return circ_buf->size == circ_buf_count_used(circ_buf);
+}
+
+static uint32_t circ_buf_idx_mask(circ_buf_t *circ_buf, uint32_t idx)
+{
+    return idx & (circ_buf->size - 1);
 }
 
 void circ_buf_push(circ_buf_t *circ_buf, uint8_t data)
@@ -42,15 +57,10 @@ void circ_buf_push(circ_buf_t *circ_buf, uint8_t data)
     cortex_int_state_t state;
     state = cortex_int_get_and_disable();
 
-    circ_buf->buf[circ_buf->tail] = data;
-    circ_buf->tail += 1;
-    if (circ_buf->tail >= circ_buf->size) {
-        util_assert(circ_buf->tail == circ_buf->size);
-        circ_buf->tail = 0;
-    }
+    util_assert(!circ_buf_full(circ_buf));
 
-    // Assert no overflow
-    util_assert(circ_buf->head != circ_buf->tail);
+    circ_buf->buf[circ_buf_idx_mask(circ_buf, circ_buf->write)] = data;
+    circ_buf->write += 1;
 
     cortex_int_restore(state);
 }
@@ -63,14 +73,10 @@ uint8_t circ_buf_pop(circ_buf_t *circ_buf)
     state = cortex_int_get_and_disable();
 
     // Assert buffer isn't empty
-    util_assert(circ_buf->head != circ_buf->tail);
+    util_assert(!circ_buf_empty(circ_buf));
 
-    data = circ_buf->buf[circ_buf->head];
-    circ_buf->head += 1;
-    if (circ_buf->head >= circ_buf->size) {
-        util_assert(circ_buf->head == circ_buf->size);
-        circ_buf->head = 0;
-    }
+    data = circ_buf->buf[circ_buf_idx_mask(circ_buf, circ_buf->read)];
+    circ_buf->read += 1;
 
     cortex_int_restore(state);
 
@@ -84,11 +90,7 @@ uint32_t circ_buf_count_used(circ_buf_t *circ_buf)
 
     state = cortex_int_get_and_disable();
 
-    if (circ_buf->tail >= circ_buf->head) {
-        cnt = circ_buf->tail - circ_buf->head;
-    } else {
-        cnt = circ_buf->tail + circ_buf->size - circ_buf->head;
-    }
+    cnt = circ_buf->write - circ_buf->read;
 
     cortex_int_restore(state);
     return cnt;
@@ -101,7 +103,7 @@ uint32_t circ_buf_count_free(circ_buf_t *circ_buf)
 
     state = cortex_int_get_and_disable();
 
-    cnt = circ_buf->size - circ_buf_count_used(circ_buf) - 1;
+    cnt = circ_buf->size - circ_buf_count_used(circ_buf);
 
     cortex_int_restore(state);
     return cnt;
@@ -141,9 +143,9 @@ uint32_t circ_buf_count_free(circ_buf_t *circ_buf)
 //     state = cortex_int_get_and_disable();
 
 //     if (circ_buf->tail < circ_buf->head) {
-//         cnt = circ_buf->head - circ_buf->tail - 1;
+//         cnt = circ_buf->head - circ_buf->tail;
 //     } else {
-//         cnt = circ_buf->size - circ_buf->tail - 1;
+//         cnt = circ_buf->size - circ_buf->tail;
 //     }
 //     cortex_int_restore(state);
 //     return cnt;
@@ -156,12 +158,18 @@ uint8_t* circ_buf_write_peek(circ_buf_t *circ_buf, uint32_t* size)
     uint8_t* buf;
 
     state = cortex_int_get_and_disable();
-    if (circ_buf->tail < circ_buf->head) {
-        *size = circ_buf->head - circ_buf->tail - 1;
+    uint32_t masked_read = circ_buf_idx_mask(circ_buf, circ_buf->read);
+    uint32_t masked_write = circ_buf_idx_mask(circ_buf, circ_buf->write);
+    if (circ_buf_full(circ_buf)) {
+        *size = 0;
+    } else if (circ_buf_empty(circ_buf)) {
+        *size = circ_buf->size - masked_write;
+    } else if (masked_write < masked_read) {
+        *size = masked_read - masked_write;
     } else {
-        *size = circ_buf->size - circ_buf->tail - 1;
+        *size = circ_buf->size - masked_write;
     }
-    buf = &circ_buf->buf[circ_buf->tail];
+    buf = &circ_buf->buf[masked_write];
     cortex_int_restore(state);
     return buf;
 }
@@ -171,10 +179,8 @@ void circ_buf_push_n(circ_buf_t *circ_buf, uint32_t size)
     cortex_int_state_t state;
 
     state = cortex_int_get_and_disable();
-    circ_buf->tail += size;
-    if (circ_buf->tail == circ_buf->size) {
-        circ_buf->tail = 0;
-    }
+    util_assert(circ_buf_count_free(circ_buf) >= size);
+    circ_buf->write += size;
     cortex_int_restore(state);
 }
 
@@ -185,6 +191,7 @@ uint32_t circ_buf_read(circ_buf_t *circ_buf, uint8_t *data, uint32_t size)
 
     cnt = circ_buf_count_used(circ_buf);
     cnt = MIN(size, cnt);
+    // TODO - optimize into one or two memcpys?
     for (i = 0; i < cnt; i++) {
         data[i] = circ_buf_pop(circ_buf);
     }
@@ -199,6 +206,7 @@ uint32_t circ_buf_write(circ_buf_t *circ_buf, const uint8_t *data, uint32_t size
 
     cnt = circ_buf_count_free(circ_buf);
     cnt = MIN(size, cnt);
+    // TODO - optimize into one or two memcpys?
     for (i = 0; i < cnt; i++) {
         circ_buf_push(circ_buf, data[i]);
     }
@@ -214,13 +222,19 @@ const uint8_t* circ_buf_peek(circ_buf_t *circ_buf, uint32_t* size)
 
     state = cortex_int_get_and_disable();
 
-    if (circ_buf->tail >= circ_buf->head) {
-        cnt = circ_buf->tail - circ_buf->head;
+    uint32_t masked_read = circ_buf_idx_mask(circ_buf, circ_buf->read);
+    uint32_t masked_write = circ_buf_idx_mask(circ_buf, circ_buf->write);
+
+    if (circ_buf_full(circ_buf)) {
+        *size = circ_buf->size - masked_read;
+    } else if (circ_buf_empty(circ_buf)) {
+        *size = 0;
+    } else if (masked_write > masked_read) {
+        cnt = masked_write - masked_read;
     } else {
-        // We can't peek all the bytes in the circular buffer in this case.
-        cnt = circ_buf->size - circ_buf->head;
+        cnt = circ_buf->size - masked_read;
     }
-    ret = circ_buf->buf + circ_buf->head;
+    ret = &circ_buf->buf[masked_read];
 
     cortex_int_restore(state);
 
@@ -236,16 +250,8 @@ void circ_buf_pop_n(circ_buf_t *circ_buf, uint32_t n)
 
     state = cortex_int_get_and_disable();
 
-    if (circ_buf->tail >= circ_buf->head) {
-        util_assert(circ_buf->tail - circ_buf->head >= n);
-        circ_buf->head += n;
-    } else {
-        util_assert(circ_buf->tail + circ_buf->size - circ_buf->head >= n);
-        circ_buf->head += n;
-        if (circ_buf->head >= circ_buf->size) {
-            circ_buf->head -= circ_buf->size;
-        }
-    }
+    util_assert(circ_buf_count_used(circ_buf) >= n);
+    circ_buf->read += n;
 
     cortex_int_restore(state);
 }
