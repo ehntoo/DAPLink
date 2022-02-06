@@ -185,23 +185,15 @@ void circ_buf_push_n(circ_buf_t *circ_buf, uint32_t size)
 uint32_t circ_buf_read(circ_buf_t *circ_buf, uint8_t *data, uint32_t size)
 {
     uint32_t cnt;
-    cortex_int_state_t state;
     uint32_t i;
-
-    state = cortex_int_get_and_disable();
 
     cnt = circ_buf_count_used(circ_buf);
     cnt = MIN(size, cnt);
-    uint32_t masked_read = circ_buf_idx_mask(circ_buf, circ_buf->read);
-    uint32_t masked_write = circ_buf_idx_mask(circ_buf, circ_buf->write);
 
-    uint32_t tail_cnt = MIN(cnt, circ_buf->size - masked_read);
-    uint32_t head_cnt = MIN(cnt - tail_cnt, masked_write);
-    memcpy(data, &circ_buf->buf[masked_read], tail_cnt);
-    memcpy(&data[tail_cnt], circ_buf->buf, head_cnt);
-    circ_buf->read += cnt;
-
-    cortex_int_restore(state);
+    for (i = 0; i < cnt; i++) {
+        data[i] = circ_buf_pop(circ_buf);
+    }
+    
     return cnt;
 }
 
@@ -209,22 +201,14 @@ uint32_t circ_buf_write(circ_buf_t *circ_buf, const uint8_t *data, uint32_t size
 {
     uint32_t cnt;
     uint32_t i;
-    cortex_int_state_t state;
 
-    state = cortex_int_get_and_disable();
 
     cnt = circ_buf_count_free(circ_buf);
     cnt = MIN(size, cnt);
-    uint32_t masked_read = circ_buf_idx_mask(circ_buf, circ_buf->read);
-    uint32_t masked_write = circ_buf_idx_mask(circ_buf, circ_buf->write);
 
-    uint32_t tail_cnt = MIN(cnt, circ_buf->size - masked_write);
-    uint32_t head_cnt = MIN(cnt - tail_cnt, masked_read);
-    memcpy(&circ_buf->buf[masked_write], data, tail_cnt);
-    memcpy(circ_buf->buf, &data[tail_cnt], head_cnt);
-    circ_buf->write += cnt;
-
-    cortex_int_restore(state);
+    for (i = 0; i < cnt; i++) {
+        circ_buf_push(circ_buf, data[i]);
+    }
 
     return cnt;
 }
