@@ -403,14 +403,14 @@ static int32_t USART_DmaTransfer(const void *data_out,
 
 static int32_t USART_DmaGetTxCount(cmsis_usart_dma_driver_state_t *usart)
 {
-    /* Does not support */
-    return ARM_DRIVER_ERROR;
+    uint32_t remaining_bytes = DMA_GetRemainingBytes(usart->handle->txDmaHandle->base, usart->handle->txDmaHandle->channel);
+    return usart->handle->txDataSizeAll - remaining_bytes;
 }
 
 static int32_t USART_DmaGetRxCount(cmsis_usart_dma_driver_state_t *usart)
 {
-    /* Does not support */
-    return ARM_DRIVER_ERROR;
+    uint32_t remaining_bytes = DMA_GetRemainingBytes(usart->handle->rxDmaHandle->base, usart->handle->rxDmaHandle->channel);
+    return usart->handle->rxDataSizeAll - remaining_bytes;
 }
 
 static int32_t USART_DmaControl(uint32_t control, uint32_t arg, cmsis_usart_dma_driver_state_t *usart)

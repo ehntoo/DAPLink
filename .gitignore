@@ -75,6 +75,7 @@ env/
 env*/
 venv/
 venv*/
+.python-version
 
 # release
 uvision_release/
@@ -98,3 +99,7 @@ mbed-os/
 
 #vscode editor
 .vscode
+
+# clangd
+.cache/
+.clangd
