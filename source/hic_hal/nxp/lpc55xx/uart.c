@@ -48,7 +48,6 @@ struct {
     // Number of bytes pending to be transferred. This is 0 if there is no
     // ongoing transfer and the uart_handler processed the last transfer.
     volatile uint32_t tx_size;
-    volatile uint32_t pending_rx_size;
     volatile uint32_t received_bytes;
 } cb_buf;
 
@@ -64,7 +63,6 @@ int32_t uart_initialize(void)
 {
     clear_buffers();
     cb_buf.tx_size = 0;
-    cb_buf.pending_rx_size = 0;
     cb_buf.received_bytes = 0;
     USART_INSTANCE.Initialize(uart_handler);
     USART_INSTANCE.PowerControl(ARM_POWER_FULL);
@@ -80,7 +78,6 @@ int32_t uart_uninitialize(void)
     USART_INSTANCE.Uninitialize();
     clear_buffers();
     cb_buf.tx_size = 0;
-    cb_buf.pending_rx_size = 0;
     cb_buf.received_bytes = 0;
 
     return 1;
@@ -95,11 +92,7 @@ int32_t uart_reset(void)
         USART_INSTANCE.Control(ARM_USART_ABORT_SEND, 0U);
         cb_buf.tx_size = 0;
     }
-    if (cb_buf.pending_rx_size != 0) {
-        USART_INSTANCE.Control(ARM_USART_ABORT_RECEIVE, 0U);
-        cb_buf.pending_rx_size = 0;
-        cb_buf.received_bytes = 0;
-    }
+    USART_INSTANCE.Control(ARM_USART_ABORT_RECEIVE, 0U);
     // enable interrupt
     NVIC_EnableIRQ(USART_IRQ);
 
@@ -181,7 +174,6 @@ int32_t uart_set_configuration(UART_Configuration *config)
     USART_INSTANCE.Control(ARM_USART_CONTROL_RX, 0U);
     USART_INSTANCE.Control(ARM_USART_ABORT_RECEIVE, 0U);
     cb_buf.received_bytes = 0;
-    cb_buf.pending_rx_size = 0;
 
     uint32_t r = USART_INSTANCE.Control(control, config->Baudrate);
     if (r != ARM_DRIVER_OK) {
@@ -192,7 +184,6 @@ int32_t uart_set_configuration(UART_Configuration *config)
 
     uint32_t read_buf_free;
     uint8_t* rx_ptr = circ_buf_write_peek(&read_buffer, &read_buf_free);
-    cb_buf.pending_rx_size = read_buf_free;
     cb_buf.received_bytes = 0;
     USART_INSTANCE.Receive(rx_ptr, read_buf_free);
 
@@ -264,7 +255,6 @@ int32_t uart_read_data(uint8_t *data, uint16_t size)
 
     uint32_t received_bytes = USART_INSTANCE.GetRxCount();
     uint32_t cached_cb_buf_received_bytes = cb_buf.received_bytes;
-    // uint32_t cached_pending_rx_size = cb_buf.pending_rx_size;
     int32_t new_byte_count = received_bytes - cached_cb_buf_received_bytes;
 
     if (new_byte_count > 0) {
@@ -272,19 +262,8 @@ int32_t uart_read_data(uint8_t *data, uint16_t size)
         circ_buf_push_n(&read_buffer, new_byte_count);
         cached_cb_buf_received_bytes += new_byte_count;
     }
-    // if (cached_pending_rx_size == 0 || cached_pending_rx_size == cached_cb_buf_received_bytes) {
-    //     // we need to schedule a new transfer. This should theoretically never happen with the second condition.
-    //     uint32_t read_buf_free;
-    //     uint8_t* rx_ptr = circ_buf_write_peek(&read_buffer, &read_buf_free);
-    //     cached_pending_rx_size = read_buf_free;
-    //     cached_cb_buf_received_bytes = 0;
-    //     if (read_buf_free > 0) {
-    //         USART_INSTANCE.Receive(rx_ptr, read_buf_free);
-    //     }
-    // }
 
     cb_buf.received_bytes = cached_cb_buf_received_bytes;
-    // cb_buf.pending_rx_size = cached_pending_rx_size;
     cortex_int_restore(state);
 
     return circ_buf_read(&read_buffer, data, size);
@@ -304,7 +283,6 @@ void uart_handler(uint32_t event) {
             USART_INSTANCE.Receive(rx_ptr, read_buf_free);
         }
         cb_buf.received_bytes = 0;
-        cb_buf.pending_rx_size = read_buf_free;
     }
 
     if (event & ARM_USART_EVENT_SEND_COMPLETE) {
